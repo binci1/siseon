@@ -151,7 +151,7 @@ aws rds create-db-instance \
   --db-instance-identifier stockops-db \
   --db-instance-class db.t3.micro \
   --engine postgres \
-  --engine-version 16.3 \
+  --engine-version 18.3 \
   --master-username stockops \
   --master-user-password "변경필수_강력한비밀번호" \
   --db-name stockops \
