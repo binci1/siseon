@@ -1,0 +1,55 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: stockops-ingress
+  namespace: stockops
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/load-balancer-name: stockops-alb
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/inbound-cidrs: 0.0.0.0/0
+    alb.ingress.kubernetes.io/healthcheck-path: /api/actuator/health
+    alb.ingress.kubernetes.io/success-codes: 200-499
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
+    alb.ingress.kubernetes.io/healthy-threshold-count: '2'
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: '3'
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          # API ?? (Spring Boot)
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: stockops-api
+                port:
+                  number: 8080
+          # AI ?? (FastAPI)
+          - path: /ai
+            pathType: Prefix
+            backend:
+              service:
+                name: stockops-ai
+                port:
+                  number: 8000
+          # ??? ?
+          - path: /admin
+            pathType: Prefix
+            backend:
+              service:
+                name: stockops-admin-web
+                port:
+                  number: 80
+          # ????? ? (?? ??)
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: stockops-client-web
+                port:
+                  number: 80

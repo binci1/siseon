@@ -1,0 +1,113 @@
+stages:
+  - test
+  - build
+  - push
+  - deploy
+
+variables:
+  MAVEN_OPTS: >-
+    -Dhttps.protocols=TLSv1.2
+    -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository
+    -Dorg.slf4j.simpleLogger.showDateTime=true
+    -Djava.awt.headless=true
+  MAVEN_CLI_OPTS: >-
+    --batch-mode
+    --errors
+    --fail-at-end
+    --show-version
+  AWS_REGION: ap-northeast-2
+  ECR_REGISTRY: ${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com
+  ECR_REPO: stockops-api
+  IMAGE_TAG: ${CI_COMMIT_SHA}
+  EKS_CLUSTER: stockops-cluster
+  K8S_NAMESPACE: stockops
+  K8S_DEPLOYMENT: stockops-api
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .m2/repository
+
+# ──────────────────────────────────────────────────────────
+# 1. 테스트
+# ──────────────────────────────────────────────────────────
+test:
+  image: eclipse-temurin:21-jdk-alpine
+  stage: test
+  script:
+    - ./mvnw ${MAVEN_CLI_OPTS} test
+  artifacts:
+    reports:
+      junit: target/surefire-reports/*.xml
+    when: always
+
+# ──────────────────────────────────────────────────────────
+# 2. JAR 빌드
+# ──────────────────────────────────────────────────────────
+build:
+  image: eclipse-temurin:21-jdk-alpine
+  stage: build
+  script:
+    - ./mvnw ${MAVEN_CLI_OPTS} package -DskipTests
+  artifacts:
+    paths:
+      - target/*.jar
+    expire_in: 1 hour
+  only:
+    - main
+    - merge_requests
+
+# ──────────────────────────────────────────────────────────
+# 3. Docker 이미지 빌드 & ECR Push
+# ──────────────────────────────────────────────────────────
+push-ecr:
+  image: docker:24-dind
+  stage: push
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_DRIVER: overlay2
+  before_script:
+    - apk add --no-cache python3 py3-pip curl
+    - pip3 install --break-system-packages awscli
+    - aws ecr get-login-password --region ${AWS_REGION}
+      | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+  script:
+    - docker build -t ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} .
+    - docker tag ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+                 ${ECR_REGISTRY}/${ECR_REPO}:latest
+    - docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+    - docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
+  only:
+    - main
+  # GitLab CI/CD Variables에 설정 필요:
+  # AWS_ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (또는 OIDC)
+
+# ──────────────────────────────────────────────────────────
+# 4. EKS Rolling Update 배포
+# ──────────────────────────────────────────────────────────
+deploy-eks:
+  image: alpine/k8s:1.29.2
+  stage: deploy
+  before_script:
+    - aws configure set region ${AWS_REGION}
+    - aws eks update-kubeconfig
+        --region ${AWS_REGION}
+        --name ${EKS_CLUSTER}
+  script:
+    # 새 이미지로 롤링 업데이트
+    - kubectl set image deployment/${K8S_DEPLOYMENT}
+        ${K8S_DEPLOYMENT}=${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+        -n ${K8S_NAMESPACE}
+    # 롤아웃 완료 대기 (최대 5분)
+    - kubectl rollout status deployment/${K8S_DEPLOYMENT}
+        -n ${K8S_NAMESPACE}
+        --timeout=300s
+  environment:
+    name: production
+    url: https://$STOCKOPS_DOMAIN
+  only:
+    - main
+  # GitLab CI/CD Variables에 설정 필요:
+  # AWS_ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+  # STOCKOPS_DOMAIN (선택 - 도메인이 있을 경우)

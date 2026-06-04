@@ -1,0 +1,33 @@
+﻿# Python fix scripts (temp)
+fix*.py
+
+# Node modules
+node_modules/
+dist/
+.vite/
+
+# Maven build output
+target/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local env
+.env.local
+.env.*.local
